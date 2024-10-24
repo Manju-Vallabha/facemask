@@ -1,6 +1,7 @@
 import streamlit as st
 import tensorflow as tf
 import pandas as pd
+import numpy as np
 import av
 import cv2
 from streamlit_webrtc import webrtc_streamer, RTCConfiguration

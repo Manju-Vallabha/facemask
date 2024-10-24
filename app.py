@@ -22,14 +22,22 @@ st.sidebar.success(
     "It will highlight faces detected in the frame and indicate whether they are wearing a mask (in green) or not (in red)."
 )
 
+# Session state for controlling the webcam
+if "run" not in st.session_state:
+    st.session_state["run"] = False
+
+# Start/Stop Buttons
 start = st.sidebar.button("Start Detection")
 stop = st.sidebar.button("Stop Detection")
 
-# Start the webcam video capture
-source = cv2.VideoCapture(0)  # Use 0 for the default webcam
+# Toggle session state based on button clicks
+if start:
+    st.session_state["run"] = True
+if stop:
+    st.session_state["run"] = False
 
 # Function to process the image frame
-def process_frame():
+def process_frame(source):
     ret, img = source.read()
     if not ret:
         return None
@@ -38,7 +46,7 @@ def process_frame():
     faces = face_clsfr.detectMultiScale(gray, 1.3, 5)
 
     for (x, y, w, h) in faces:
-        face_img = gray[y:y + h, x:x + w]  # Corrected for height
+        face_img = gray[y:y + h, x:x + w]
         resized = cv2.resize(face_img, (100, 100))
         normalized = resized / 255.0
         reshaped = np.reshape(normalized, (1, 100, 100, 1))
@@ -54,12 +62,15 @@ def process_frame():
 
     return img
 
+# Start the webcam video capture
+source = cv2.VideoCapture(0)  # Use 0 for the default webcam
+
 # Main loop for handling the video stream
-if start:
+if st.session_state["run"]:
     stframe = st.empty()  # Create a placeholder for the video frames
 
-    while True:
-        frame = process_frame()
+    while st.session_state["run"]:
+        frame = process_frame(source)
         if frame is None:
             st.write("Unable to capture video.")
             break
@@ -67,10 +78,6 @@ if start:
         # Convert the frame to RGB format and display it in Streamlit
         frame_rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
         stframe.image(frame_rgb, channels="RGB", use_column_width=True)
-
-        # Exit loop when stop button is clicked
-        if stop:
-            break
 
 else:
     st.info("Please click the 'Start Detection' button to begin mask detection.")

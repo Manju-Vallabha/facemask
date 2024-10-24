@@ -1,6 +1,6 @@
 streamlit
 opencv-python
-tensorflow
+tensorflow=2.16.1
 keras
 numpy
 av

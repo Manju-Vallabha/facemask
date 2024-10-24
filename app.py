@@ -1,86 +1,119 @@
 import streamlit as st
+import tensorflow as tf
+import pandas as pd
+import av
+
+from streamlit_webrtc import webrtc_streamer, RTCConfiguration
+from PIL import Image, ImageDraw, ImageFont
+from streamlit_lottie import st_lottie
 from keras.models import load_model
-import cv2
-import numpy as np
 
-# Load the pre-trained model and face classifier
+# Set page configurations
+st.set_page_config(layout='wide', page_title="Face Mask Detection", page_icon="😷")
+
+# Load pre-trained mask detection model and other assets
 model = load_model('final_model.h5')
-face_clsfr = cv2.CascadeClassifier('haarcascade_frontalface_default.xml')
+face_clsfr = cv.CascadeClassifier(cv.data.haarcascades + 'haarcascade_frontalface_default.xml')
 
-# Labels and colors for the mask detection
+# Define label and color for mask detection
 labels_dict = {1: 'MASK', 0: 'NO MASK'}
 color_dict = {0: (0, 255, 0), 1: (0, 0, 255)}
 
-# Streamlit app title
-st.title("Live Mask Detection System")
+def load_lottiefile(filepath: str):
+    with open(filepath, "r") as f:
+        return json.load(f)
 
-# Streamlit sidebar controls and information
-st.sidebar.markdown("## Controls")
-st.sidebar.success(
-    "This application uses a webcam to detect whether individuals are wearing masks or not. "
-    "Once you click the 'Start Detection' button, the system will begin analyzing the video feed in real-time. "
-    "It will highlight faces detected in the frame and indicate whether they are wearing a mask (in green) or not (in red)."
-)
+logo = load_lottiefile("animation.json")
 
-# Session state for controlling the webcam
-if "run" not in st.session_state:
-    st.session_state["run"] = False
-
-# Start/Stop Buttons
-start = st.sidebar.button("Start Detection")
-stop = st.sidebar.button("Stop Detection")
-
-# Toggle session state based on button clicks
-if start:
-    st.session_state["run"] = True
-if stop:
-    st.session_state["run"] = False
-
-# Function to process the image frame
-def process_frame(source):
-    ret, img = source.read()
-    if not ret:
-        return None
-
-    gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
-    faces = face_clsfr.detectMultiScale(gray, 1.3, 5)
-
-    for (x, y, w, h) in faces:
-        face_img = gray[y:y + h, x:x + w]
-        resized = cv2.resize(face_img, (100, 100))
-        normalized = resized / 255.0
-        reshaped = np.reshape(normalized, (1, 100, 100, 1))
-        result = model.predict(reshaped)
-
+# Face mask detection function
+def web_mask_detection(frame):
+    image_np = frame.to_ndarray(format="bgr24")
+    image_pil = Image.fromarray(image_np)
+    draw = ImageDraw.Draw(image_pil)
+    faces, confidences = cv.detect_face(image_np)
+    
+    for f in faces:
+        (startX, startY) = f[0], f[1]
+        (endX, endY) = f[2], f[3]
+        face_img = image_np[startY:endY, startX:endX]
+        face_img_resized = cv.resize(face_img, (100, 100))
+        face_img_normalized = face_img_resized / 255.0
+        face_img_reshaped = np.reshape(face_img_normalized, (1, 100, 100, 3))
+        
+        # Predict mask or no mask
+        result = model.predict(face_img_reshaped)
         label = np.argmax(result, axis=1)[0]
 
-        # Draw rectangles and labels on the image
-        cv2.rectangle(img, (x, y), (x + w, y + h), color_dict[label], 2)
-        cv2.rectangle(img, (x, y - 40), (x + w, y), color_dict[label], -1)
-        cv2.putText(img, labels_dict[label], (x, y - 10),
-                    cv2.FONT_HERSHEY_SIMPLEX, 0.8, (255, 255, 255), 2)
+        # Draw rectangles and labels
+        draw.rectangle(((startX, startY), (endX, endY)), outline=color_dict[label], width=2)
+        label_text = labels_dict[label]
+        font = ImageFont.truetype("arial.ttf", 15)
+        draw.text((startX + 10, startY - 20), label_text, font=font, fill=(255, 255, 255))
 
-    return img
+    image_np = np.array(image_pil)
+    return av.VideoFrame.from_ndarray(image_np, format="bgr24")
 
-# Start the webcam video capture
-source = cv2.VideoCapture(0)  # Use 0 for the default webcam
+# Streamlit Sidebar
+with st.sidebar:
+    st.title('Face Mask Detection')
+    st.success('This is a real-time face mask detection application using a webcam.')
+    st.info('The model detects if individuals are wearing a mask or not.')
+    task2 = ['<Select>', 'Capture', 'Web-Cam']
+    mode = st.selectbox('Select Mode', task2)
 
-# Main loop for handling the video stream
-if st.session_state["run"]:
-    stframe = st.empty()  # Create a placeholder for the video frames
+# Main app layout
+st.markdown(
+    """
+    <style>
+        .title {
+            text-align: center;
+            font-weight: bold;
+        }
+        .mainheading {
+            text-align: center;
+            font-family: monospace;
+            font-size: 25px;
+        }
+    </style>
+    """, unsafe_allow_html=True
+)
+st.markdown('<h1 class="title">Face Mask Detection</h1>', unsafe_allow_html=True)
+st.markdown('<br><br>', unsafe_allow_html=True)
 
-    while st.session_state["run"]:
-        frame = process_frame(source)
-        if frame is None:
-            st.write("Unable to capture video.")
-            break
+# Lottie Animation
+st_lottie(logo, speed=1, width=250, height=250)
 
-        # Convert the frame to RGB format and display it in Streamlit
-        frame_rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
-        stframe.image(frame_rgb, channels="RGB", use_column_width=True)
+# Capture Mode
+if mode == 'Capture':
+    image = st.camera_input("Capture a snapshot")
+    if image is not None:
+        image = Image.open(image)
+        image_np = np.array(image)
+        image_pil = Image.fromarray(image_np)
+        draw = ImageDraw.Draw(image_pil)
+        faces, confidences = cv.detect_face(image_np)
+        
+        for f in faces:
+            (startX, startY) = f[0], f[1]
+            (endX, endY) = f[2], f[3]
+            face_img = image_np[startY:endY, startX:endX]
+            face_img_resized = cv.resize(face_img, (100, 100))
+            face_img_normalized = face_img_resized / 255.0
+            face_img_reshaped = np.reshape(face_img_normalized, (1, 100, 100, 3))
+            
+            result = model.predict(face_img_reshaped)
+            label = np.argmax(result, axis=1)[0]
+            
+            draw.rectangle(((startX, startY), (endX, endY)), outline=color_dict[label], width=2)
+            label_text = labels_dict[label]
+            font = ImageFont.truetype("arial.ttf", 15)
+            draw.text((startX + 10, startY - 20), label_text, font=font, fill=(255, 255, 255))
+        
+        st.image(np.array(image_pil), caption='Captured Image with Face Mask Detection', use_column_width=True)
 
-else:
-    st.info("Please click the 'Start Detection' button to begin mask detection.")
-
-# Release the video source when done
-source.release()
+# Webcam Mode
+if mode == 'Web-Cam':
+    webrtc_streamer(key="example", video_frame_callback=web_mask_detection,
+                    rtc_configuration=RTCConfiguration(
+                        {"iceServers": [{"urls": ["stun:stun.l.google.com:19302"]}]}
+                    ))

@@ -5,7 +5,6 @@ import av
 
 from streamlit_webrtc import webrtc_streamer, RTCConfiguration
 from PIL import Image, ImageDraw, ImageFont
-from streamlit_lottie import st_lottie
 from keras.models import load_model
 
 # Set page configurations

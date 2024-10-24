@@ -18,12 +18,6 @@ face_clsfr = cv2.CascadeClassifier('haarcascade_frontalface_default.xml')
 labels_dict = {1: 'MASK', 0: 'NO MASK'}
 color_dict = {0: (0, 255, 0), 1: (0, 0, 255)}
 
-def load_lottiefile(filepath: str):
-    with open(filepath, "r") as f:
-        return json.load(f)
-
-logo = load_lottiefile("animation.json")
-
 # Face mask detection function
 def web_mask_detection(frame):
     image_np = frame.to_ndarray(format="bgr24")
@@ -78,9 +72,6 @@ st.markdown(
 )
 st.markdown('<h1 class="title">Face Mask Detection</h1>', unsafe_allow_html=True)
 st.markdown('<br><br>', unsafe_allow_html=True)
-
-# Lottie Animation
-st_lottie(logo, speed=1, width=250, height=250)
 
 # Capture Mode
 if mode == 'Capture':

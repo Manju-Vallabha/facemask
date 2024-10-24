@@ -2,7 +2,7 @@ import streamlit as st
 import tensorflow as tf
 import pandas as pd
 import av
-
+import cv2
 from streamlit_webrtc import webrtc_streamer, RTCConfiguration
 from PIL import Image, ImageDraw, ImageFont
 from keras.models import load_model
@@ -12,7 +12,7 @@ st.set_page_config(layout='wide', page_title="Face Mask Detection", page_icon="ð
 
 # Load pre-trained mask detection model and other assets
 model = load_model('final_model.h5')
-face_clsfr = cv.CascadeClassifier(cv.data.haarcascades + 'haarcascade_frontalface_default.xml')
+face_clsfr = cv2.CascadeClassifier('haarcascade_frontalface_default.xml')
 
 # Define label and color for mask detection
 labels_dict = {1: 'MASK', 0: 'NO MASK'}

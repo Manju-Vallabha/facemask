@@ -1,6 +1,9 @@
 
 # Project Setup Guide
 
+## Kaggle NoteBook Link
+The model Trainng link [Kaggle Link](https://www.kaggle.com/code/manjuvallabha/face-mask).
+
 ## 1. Download the Dataset
 To run the project, you need to download the necessary files from Google Drive. Please download and extract the files into the project's root directory.
 

@@ -1,110 +1,62 @@
 import streamlit as st
-import tensorflow as tf
-import pandas as pd
 import numpy as np
 import av
 import cv2
-from streamlit_webrtc import webrtc_streamer, RTCConfiguration
-from PIL import Image, ImageDraw, ImageFont
 from keras.models import load_model
+from streamlit_webrtc import webrtc_streamer, RTCConfiguration
 
-# Set page configurations
-st.set_page_config(layout='wide', page_title="Face Mask Detection", page_icon="😷")
-
-# Load pre-trained mask detection model and other assets
+# Load the pre-trained mask detection model
 model = load_model('final_model.h5')
+
+# Load the Haar cascade classifier for face detection
 face_clsfr = cv2.CascadeClassifier('haarcascade_frontalface_default.xml')
 
-# Define label and color for mask detection
+# Labels and colors for mask detection
 labels_dict = {1: 'MASK', 0: 'NO MASK'}
 color_dict = {0: (0, 255, 0), 1: (0, 0, 255)}
 
-# Face mask detection function
-def web_mask_detection(frame):
-    image_np = frame.to_ndarray(format="bgr24")
-    image_pil = Image.fromarray(image_np)
-    draw = ImageDraw.Draw(image_pil)
-    faces, confidences = cv.detect_face(image_np)
+# Streamlit app title and layout
+st.set_page_config(layout='wide', page_title="Face Mask Detection", page_icon="😷")
+st.title("Real-Time Face Mask Detection")
+
+# Sidebar instructions
+st.sidebar.markdown("## Instructions")
+st.sidebar.info("This application detects whether people are wearing face masks in real-time using your webcam. "
+                "Faces with masks will be highlighted in green, and faces without masks in red.")
+
+# Function for real-time mask detection using the webcam
+def mask_detection_callback(frame):
+    image_np = frame.to_ndarray(format="bgr24")  # Convert video frame to numpy array
+    gray = cv2.cvtColor(image_np, cv2.COLOR_BGR2GRAY)  # Convert frame to grayscale
+    faces = face_clsfr.detectMultiScale(gray, 1.3, 5)  # Detect faces in the frame
     
-    for f in faces:
-        (startX, startY) = f[0], f[1]
-        (endX, endY) = f[2], f[3]
-        face_img = image_np[startY:endY, startX:endX]
-        face_img_resized = cv.resize(face_img, (100, 100))
-        face_img_normalized = face_img_resized / 255.0
-        face_img_reshaped = np.reshape(face_img_normalized, (1, 100, 100, 3))
-        
-        # Predict mask or no mask
-        result = model.predict(face_img_reshaped)
-        label = np.argmax(result, axis=1)[0]
+    for (x, y, w, h) in faces:
+        face_img = gray[y:y + h, x:x + w]  # Extract the face area from the image
+        resized = cv2.resize(face_img, (100, 100))  # Resize the face for model input
+        normalized = resized / 255.0  # Normalize the pixel values
+        reshaped = np.reshape(normalized, (1, 100, 100, 1))  # Reshape to fit model input
+        result = model.predict(reshaped)  # Predict whether mask is present
 
-        # Draw rectangles and labels
-        draw.rectangle(((startX, startY), (endX, endY)), outline=color_dict[label], width=2)
-        label_text = labels_dict[label]
-        font = ImageFont.truetype("arial.ttf", 15)
-        draw.text((startX + 10, startY - 20), label_text, font=font, fill=(255, 255, 255))
+        label = np.argmax(result, axis=1)[0]  # Get the prediction (MASK or NO MASK)
 
-    image_np = np.array(image_pil)
+        # Draw rectangles and labels on the image
+        cv2.rectangle(image_np, (x, y), (x + w, y + h), color_dict[label], 2)
+        cv2.rectangle(image_np, (x, y - 40), (x + w, y), color_dict[label], -1)
+        cv2.putText(image_np, labels_dict[label], (x, y - 10),
+                    cv2.FONT_HERSHEY_SIMPLEX, 0.8, (255, 255, 255), 2)
+
     return av.VideoFrame.from_ndarray(image_np, format="bgr24")
 
-# Streamlit Sidebar
-with st.sidebar:
-    st.title('Face Mask Detection')
-    st.success('This is a real-time face mask detection application using a webcam.')
-    st.info('The model detects if individuals are wearing a mask or not.')
-    task2 = ['<Select>', 'Capture', 'Web-Cam']
-    mode = st.selectbox('Select Mode', task2)
+# WebRTC component for webcam streaming and real-time mask detection
+webrtc_streamer(key="mask_detection", video_frame_callback=mask_detection_callback,
+                rtc_configuration=RTCConfiguration(
+                    {"iceServers": [{"urls": ["stun:stun.l.google.com:19302"]}]}
+                ))
 
-# Main app layout
-st.markdown(
-    """
-    <style>
-        .title {
-            text-align: center;
-            font-weight: bold;
-        }
-        .mainheading {
-            text-align: center;
-            font-family: monospace;
-            font-size: 25px;
-        }
-    </style>
-    """, unsafe_allow_html=True
-)
-st.markdown('<h1 class="title">Face Mask Detection</h1>', unsafe_allow_html=True)
-st.markdown('<br><br>', unsafe_allow_html=True)
-
-# Capture Mode
-if mode == 'Capture':
-    image = st.camera_input("Capture a snapshot")
-    if image is not None:
-        image = Image.open(image)
-        image_np = np.array(image)
-        image_pil = Image.fromarray(image_np)
-        draw = ImageDraw.Draw(image_pil)
-        faces, confidences = cv.detect_face(image_np)
-        
-        for f in faces:
-            (startX, startY) = f[0], f[1]
-            (endX, endY) = f[2], f[3]
-            face_img = image_np[startY:endY, startX:endX]
-            face_img_resized = cv.resize(face_img, (100, 100))
-            face_img_normalized = face_img_resized / 255.0
-            face_img_reshaped = np.reshape(face_img_normalized, (1, 100, 100, 3))
-            
-            result = model.predict(face_img_reshaped)
-            label = np.argmax(result, axis=1)[0]
-            
-            draw.rectangle(((startX, startY), (endX, endY)), outline=color_dict[label], width=2)
-            label_text = labels_dict[label]
-            font = ImageFont.truetype("arial.ttf", 15)
-            draw.text((startX + 10, startY - 20), label_text, font=font, fill=(255, 255, 255))
-        
-        st.image(np.array(image_pil), caption='Captured Image with Face Mask Detection', use_column_width=True)
-
-# Webcam Mode
-if mode == 'Web-Cam':
-    webrtc_streamer(key="example", video_frame_callback=web_mask_detection,
-                    rtc_configuration=RTCConfiguration(
-                        {"iceServers": [{"urls": ["stun:stun.l.google.com:19302"]}]}
-                    ))
+# Display instructions on the main page
+st.markdown("""
+    ### How to use:
+    - Allow access to your webcam by clicking the 'Allow' button in the pop-up.
+    - The system will start detecting faces and determining if they are wearing a mask in real-time.
+    - Faces with masks will be highlighted in green, and those without masks in red.
+""")

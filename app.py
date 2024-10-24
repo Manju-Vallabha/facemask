@@ -1,62 +1,76 @@
 import streamlit as st
+import cv2
 import numpy as np
 import av
-import cv2
 from keras.models import load_model
-from streamlit_webrtc import webrtc_streamer, RTCConfiguration
+from streamlit_webrtc import webrtc_streamer, VideoProcessorBase, RTCConfiguration
 
-# Load the pre-trained mask detection model
-model = load_model('final_model.h5')
+# Load the pre-trained model and face classifier
+MODEL_PATH = 'final_model.h5'
+FACE_CASCADE_PATH = 'haarcascade_frontalface_default.xml'
 
-# Load the Haar cascade classifier for face detection
-face_clsfr = cv2.CascadeClassifier('haarcascade_frontalface_default.xml')
+# Load model and compile if needed
+model = load_model(MODEL_PATH)
+model.compile(optimizer='adam', loss='categorical_crossentropy', metrics=['accuracy'])
+
+face_clsfr = cv2.CascadeClassifier(FACE_CASCADE_PATH)
 
 # Labels and colors for mask detection
-labels_dict = {1: 'MASK', 0: 'NO MASK'}
-color_dict = {0: (0, 255, 0), 1: (0, 0, 255)}
+LABELS_DICT = {1: 'MASK', 0: 'NO MASK'}
+COLOR_DICT = {1: (0, 255, 0), 0: (0, 0, 255)}
 
-# Streamlit app title and layout
-st.set_page_config(layout='wide', page_title="Face Mask Detection", page_icon="😷")
-st.title("Real-Time Face Mask Detection")
+# Streamlit app title
+st.title("Real-Time Mask Detection with Streamlit WebRTC")
 
 # Sidebar instructions
-st.sidebar.markdown("## Instructions")
-st.sidebar.info("This application detects whether people are wearing face masks in real-time using your webcam. "
-                "Faces with masks will be highlighted in green, and faces without masks in red.")
+st.sidebar.markdown("## Controls")
+st.sidebar.info("This system uses your webcam to detect whether individuals are wearing masks in real-time.")
 
-# Function for real-time mask detection using the webcam
-def mask_detection_callback(frame):
-    image_np = frame.to_ndarray(format="bgr24")  # Convert video frame to numpy array
-    gray = cv2.cvtColor(image_np, cv2.COLOR_BGR2GRAY)  # Convert frame to grayscale
-    faces = face_clsfr.detectMultiScale(gray, 1.3, 5)  # Detect faces in the frame
-    
-    for (x, y, w, h) in faces:
-        face_img = gray[y:y + h, x:x + w]  # Extract the face area from the image
-        resized = cv2.resize(face_img, (100, 100))  # Resize the face for model input
-        normalized = resized / 255.0  # Normalize the pixel values
-        reshaped = np.reshape(normalized, (1, 100, 100, 1))  # Reshape to fit model input
-        result = model.predict(reshaped)  # Predict whether mask is present
+# Define a custom VideoProcessor for WebRTC
+class MaskDetectionProcessor(VideoProcessorBase):
+    def __init__(self):
+        # Initialize with the pre-loaded model and classifier
+        self.model = model
+        self.face_clsfr = face_clsfr
 
-        label = np.argmax(result, axis=1)[0]  # Get the prediction (MASK or NO MASK)
+    def recv(self, frame):
+        # Get the image frame from the video stream
+        img = frame.to_ndarray(format="bgr24")
+        
+        # Convert to grayscale for face detection
+        gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
+        faces = self.face_clsfr.detectMultiScale(gray, 1.3, 5)
 
-        # Draw rectangles and labels on the image
-        cv2.rectangle(image_np, (x, y), (x + w, y + h), color_dict[label], 2)
-        cv2.rectangle(image_np, (x, y - 40), (x + w, y), color_dict[label], -1)
-        cv2.putText(image_np, labels_dict[label], (x, y - 10),
-                    cv2.FONT_HERSHEY_SIMPLEX, 0.8, (255, 255, 255), 2)
+        for (x, y, w, h) in faces:
+            # Preprocess the face region for the model
+            face_img = gray[y:y + h, x:x + w]
+            resized = cv2.resize(face_img, (100, 100))
+            normalized = resized / 255.0
+            reshaped = np.reshape(normalized, (1, 100, 100, 1))  # Ensure this matches the model's input shape
+            
+            # Try-catch block to handle potential prediction errors
+            try:
+                result = self.model.predict(reshaped)
+                label = np.argmax(result, axis=1)[0]
+            except Exception as e:
+                st.error(f"Error during prediction: {str(e)}")
+                return av.VideoFrame.from_ndarray(img, format="bgr24")
 
-    return av.VideoFrame.from_ndarray(image_np, format="bgr24")
+            # Draw rectangles and labels on the image
+            color = COLOR_DICT[label]
+            cv2.rectangle(img, (x, y), (x + w, y + h), color, 2)
+            cv2.rectangle(img, (x, y - 40), (x + w, y), color, -1)
+            cv2.putText(img, LABELS_DICT[label], (x, y - 10),
+                        cv2.FONT_HERSHEY_SIMPLEX, 0.8, (255, 255, 255), 2)
 
-# WebRTC component for webcam streaming and real-time mask detection
-webrtc_streamer(key="mask_detection", video_frame_callback=mask_detection_callback,
-                rtc_configuration=RTCConfiguration(
-                    {"iceServers": [{"urls": ["stun:stun.l.google.com:19302"]}]}
-                ))
+        # Return the processed frame
+        return av.VideoFrame.from_ndarray(img, format="bgr24")
 
-# Display instructions on the main page
-st.markdown("""
-    ### How to use:
-    - Allow access to your webcam by clicking the 'Allow' button in the pop-up.
-    - The system will start detecting faces and determining if they are wearing a mask in real-time.
-    - Faces with masks will be highlighted in green, and those without masks in red.
-""")
+# WebRTC streamer setup using the custom processor
+webrtc_streamer(
+    key="mask-detection",
+    video_processor_factory=MaskDetectionProcessor,
+    rtc_configuration=RTCConfiguration(
+        {"iceServers": [{"urls": ["stun:stun.l.google.com:19302"]}]}
+    )
+)
